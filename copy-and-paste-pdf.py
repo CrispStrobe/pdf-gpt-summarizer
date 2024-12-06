@@ -4,6 +4,7 @@ import os
 import webbrowser
 import pyperclip
 from PyPDF2 import PdfReader
+import re
 
 def extract_text_from_pdf(pdf_path):
     """
@@ -50,15 +51,50 @@ def format_content(text, format_type):
         print(f"Unsupported format: {format_type}")
         sys.exit(1)
 
-def build_prompt(formatted_text):
+def split_into_snippets(text, context_size):
     """
-    Builds the prompt by concatenating the instruction with the formatted text.
+    Splits the text into snippets that fit within the specified context window size.
 
-    :param formatted_text: The formatted text to be summarized.
-    :return: The complete prompt as a string.
+    :param text: The text to split.
+    :param context_size: Maximum size of each snippet in characters.
+    :return: List of text snippets.
     """
-    prompt = "Summarize the following text into no longer than 800 words:\n\n" + formatted_text
-    return prompt
+    # Split text into sentences using regex to ensure proper sentence boundaries
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    
+    snippets = []
+    current_snippet = ""
+    
+    for sentence in sentences:
+        # Check if adding the next sentence exceeds the context size
+        if len(current_snippet) + len(sentence) + 1 > context_size:
+            if current_snippet:
+                snippets.append(current_snippet.strip())
+                current_snippet = sentence + " "
+            else:
+                # Single sentence exceeds context size; force split
+                snippets.append(sentence.strip())
+                current_snippet = ""
+        else:
+            current_snippet += sentence + " "
+    
+    # Add any remaining text as the last snippet
+    if current_snippet.strip():
+        snippets.append(current_snippet.strip())
+    
+    return snippets
+
+def build_snippet_frame(part_number, total_parts, snippet):
+    """
+    Frames the snippet with part notifications.
+
+    :param part_number: The current part number.
+    :param total_parts: The total number of parts.
+    :param snippet: The text snippet.
+    :return: Framed snippet as a string.
+    """
+    framed_snippet = f"---\nPart {part_number} of {total_parts}:\n\n{snippet}\n\nEnd of Part {part_number}.\n---"
+    return framed_snippet
 
 def copy_to_clipboard(text):
     """
@@ -91,10 +127,16 @@ def parse_arguments():
 
     :return: Parsed arguments.
     """
-    parser = argparse.ArgumentParser(description="PDF to ChatGPT Summarizer")
+    parser = argparse.ArgumentParser(description="PDF to ChatGPT Summarizer with Enhanced Features")
     parser.add_argument('pdf_path', help='Path to the PDF file to be summarized.')
     parser.add_argument('--format', choices=['txt', 'md', 'html'], default='txt',
                         help='Output format: txt (default), md, or html.')
+    parser.add_argument('--context', type=int, default=128000,
+                        help='Context window size in characters (default: 128000).')
+    parser.add_argument('--snippet', type=int, default=None,
+                        help='Specify which snippet to process (e.g., 3). If not set, all snippets will be processed.')
+    parser.add_argument('--prompt', type=str, default=None,
+                        help='Custom prompt to use instead of the default instruction.')
     return parser.parse_args()
 
 def main():
@@ -114,11 +156,58 @@ def main():
     print(f"Formatting content as '{args.format}'...")
     formatted_text = format_content(extracted_text, args.format)
 
-    print("Building the prompt...")
-    prompt = build_prompt(formatted_text)
+    context_size = args.context
+    print(f"Using context window size: {context_size} characters.")
+
+    # Check if content exceeds context window
+    if len(formatted_text) > context_size:
+        print("Content exceeds the context window. Splitting into snippets...")
+        # Reserve space for framing notifications (approximate)
+        reserved_space = 500
+        snippets = split_into_snippets(formatted_text, context_size - reserved_space)
+        total_snippets = len(snippets)
+        print(f"Total snippets created: {total_snippets}")
+    else:
+        snippets = [formatted_text]
+        total_snippets = 1
+        print("Content fits within the context window.")
+
+    # Determine which snippets to process
+    if args.snippet:
+        if args.snippet < 1 or args.snippet > total_snippets:
+            print(f"Error: --snippet must be between 1 and {total_snippets}.")
+            sys.exit(1)
+        selected_snippets = [snippets[args.snippet - 1]]
+        selected_total = total_snippets
+        print(f"Processing snippet {args.snippet} of {total_snippets}.")
+    else:
+        selected_snippets = snippets
+        selected_total = total_snippets
+        if total_snippets > 1:
+            print("Processing all snippets.")
+        else:
+            print("Processing the single snippet.")
+
+    # Define the prompt instruction
+    default_prompt = "Summarize the following text into no longer than 800 words:"
+    prompt_instruction = args.prompt if args.prompt else default_prompt
+
+    # Build the complete prompt
+    complete_prompt = ""
+
+    if selected_total > 1:
+        # Add the prompt instruction once at the beginning
+        complete_prompt += f"{prompt_instruction}\n\n"
+        for idx, snippet in enumerate(selected_snippets, start=1):
+            part_number = args.snippet if args.snippet else idx
+            framed_snippet = build_snippet_frame(part_number, selected_total, snippet)
+            complete_prompt += f"{framed_snippet}\n\n"
+    else:
+        # Single snippet without framing
+        complete_prompt += f"{prompt_instruction}\n\n{selected_snippets[0]}"
 
     print("Copying the prompt to the clipboard...")
-    copy_to_clipboard(prompt)
+    copy_to_clipboard(complete_prompt.strip())
 
     print("Opening ChatGPT in your default browser...")
     open_chatgpt()
@@ -131,4 +220,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
