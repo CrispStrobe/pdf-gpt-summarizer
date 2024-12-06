@@ -1,7 +1,7 @@
 # PDF to ChatGPT Summarizer
 
 ## Overview
-**PDF to ChatGPT Summarizer** is a Python-based tool designed to streamline the process of extracting text from PDF documents, formatting the content, and preparing a prompt for ChatGPT to generate summaries. This tool automates the workflow, making it easier to obtain concise summaries from lengthy PDF files.
+**PDF to ChatGPT Summarizer** is a simple Python-based tool designed to streamline the process of extracting text from PDF documents, formatting the content, and preparing a prompt for ChatGPT to generate summaries. This way you can quickly work with o1 too, which does not accept file upload yet.
 
 ## Features
 - **PDF Parsing:** Extracts text content from PDF files using `PyPDF2`.
